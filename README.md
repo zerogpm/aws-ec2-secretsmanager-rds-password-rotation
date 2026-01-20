@@ -476,6 +476,187 @@ Approximate monthly costs (us-east-1):
 
 ---
 
+## Manual Secret Rotation
+
+### Why Manual Rotation?
+
+Automatic secret rotation in AWS Secrets Manager requires a **Lambda function** to handle the rotation process. This Lambda function is responsible for:
+
+1. Creating a new password
+2. Updating the database with the new credentials
+3. Updating the secret in Secrets Manager
+4. Testing the new credentials
+
+Since this is an educational project without Lambda-based rotation configured (`enable_rotation = false`), you can **manually rotate** the RDS credentials using the AWS CLI commands below.
+
+### Step 1: Get Current Secret Details
+
+```bash
+# Get the secret name from Terraform output
+terraform output secret_name
+
+# View current secret value
+aws secretsmanager get-secret-value \
+  --secret-id $(terraform output -raw secret_name) \
+  --query SecretString --output text | jq
+```
+
+### Step 2: Generate a New Password
+
+```bash
+# Generate a random password (32 characters)
+NEW_PASSWORD=$(aws secretsmanager get-random-password \
+  --password-length 32 \
+  --exclude-punctuation \
+  --query RandomPassword --output text)
+
+echo "New password generated: $NEW_PASSWORD"
+```
+
+### Step 3: Update the RDS Database Password
+
+```bash
+# Get the RDS instance identifier
+RDS_INSTANCE=$(terraform output -raw rds_instance_id)
+
+# Update the master password in RDS
+aws rds modify-db-instance \
+  --db-instance-identifier $RDS_INSTANCE \
+  --master-user-password "$NEW_PASSWORD" \
+  --apply-immediately
+```
+
+> **Note:** The `--apply-immediately` flag applies the change right away. Without it, the change waits until the next maintenance window.
+
+### Step 4: Update the Secret in Secrets Manager
+
+```bash
+# Get current secret value
+SECRET_ID=$(terraform output -raw secret_name)
+CURRENT_SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id $SECRET_ID \
+  --query SecretString --output text)
+
+# Update the password in the JSON and store it
+UPDATED_SECRET=$(echo $CURRENT_SECRET | jq --arg pwd "$NEW_PASSWORD" '.password = $pwd')
+
+aws secretsmanager put-secret-value \
+  --secret-id $SECRET_ID \
+  --secret-string "$UPDATED_SECRET"
+```
+
+### Step 5: Verify the New Credentials
+
+```bash
+# Wait a moment for RDS to apply the change
+echo "Waiting for RDS to apply password change..."
+sleep 30
+
+# Test by retrieving the secret and verifying
+aws secretsmanager get-secret-value \
+  --secret-id $(terraform output -raw secret_name) \
+  --query SecretString --output text | jq
+
+# Then test the connection via the web tester or your application
+```
+
+### All-in-One Script (Bash)
+
+```bash
+#!/bin/bash
+# rotate-secret.sh - Manual RDS credential rotation
+
+set -e
+
+SECRET_ID=$(terraform output -raw secret_name)
+RDS_INSTANCE=$(terraform output -raw rds_instance_id)
+
+echo "=== Manual Secret Rotation ==="
+echo "Secret: $SECRET_ID"
+echo "RDS Instance: $RDS_INSTANCE"
+
+# Generate new password
+NEW_PASSWORD=$(aws secretsmanager get-random-password \
+  --password-length 32 \
+  --exclude-punctuation \
+  --query RandomPassword --output text)
+
+echo "✓ New password generated"
+
+# Update RDS
+aws rds modify-db-instance \
+  --db-instance-identifier $RDS_INSTANCE \
+  --master-user-password "$NEW_PASSWORD" \
+  --apply-immediately > /dev/null
+
+echo "✓ RDS password update initiated"
+
+# Update Secrets Manager
+CURRENT_SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id $SECRET_ID \
+  --query SecretString --output text)
+
+UPDATED_SECRET=$(echo $CURRENT_SECRET | jq --arg pwd "$NEW_PASSWORD" '.password = $pwd')
+
+aws secretsmanager put-secret-value \
+  --secret-id $SECRET_ID \
+  --secret-string "$UPDATED_SECRET" > /dev/null
+
+echo "✓ Secret updated in Secrets Manager"
+echo ""
+echo "=== Rotation Complete ==="
+echo "Note: RDS may take 1-2 minutes to fully apply the new password."
+echo "Test your connection after waiting."
+```
+
+### PowerShell Version (Windows)
+
+```powershell
+# rotate-secret.ps1 - Manual RDS credential rotation for Windows
+
+$SECRET_ID = terraform output -raw secret_name
+$RDS_INSTANCE = terraform output -raw rds_instance_id
+
+Write-Host "=== Manual Secret Rotation ===" -ForegroundColor Cyan
+Write-Host "Secret: $SECRET_ID"
+Write-Host "RDS Instance: $RDS_INSTANCE"
+
+# Generate new password
+$NEW_PASSWORD = aws secretsmanager get-random-password `
+  --password-length 32 `
+  --exclude-punctuation `
+  --query RandomPassword --output text
+
+Write-Host "✓ New password generated" -ForegroundColor Green
+
+# Update RDS
+aws rds modify-db-instance `
+  --db-instance-identifier $RDS_INSTANCE `
+  --master-user-password $NEW_PASSWORD `
+  --apply-immediately | Out-Null
+
+Write-Host "✓ RDS password update initiated" -ForegroundColor Green
+
+# Update Secrets Manager
+$CURRENT_SECRET = aws secretsmanager get-secret-value `
+  --secret-id $SECRET_ID `
+  --query SecretString --output text | ConvertFrom-Json
+
+$CURRENT_SECRET.password = $NEW_PASSWORD
+$UPDATED_SECRET = $CURRENT_SECRET | ConvertTo-Json -Compress
+
+aws secretsmanager put-secret-value `
+  --secret-id $SECRET_ID `
+  --secret-string $UPDATED_SECRET | Out-Null
+
+Write-Host "✓ Secret updated in Secrets Manager" -ForegroundColor Green
+Write-Host ""
+Write-Host "=== Rotation Complete ===" -ForegroundColor Cyan
+Write-Host "Note: RDS may take 1-2 minutes to fully apply the new password."
+```
+
+---
+
 ## Security Notes
 
 - EC2 has no public IP (accessed only via ALB)
