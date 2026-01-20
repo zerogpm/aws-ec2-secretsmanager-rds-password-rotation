@@ -30,7 +30,7 @@ This Terraform configuration deploys an AWS RDS MySQL instance with credentials 
 - **NAT Gateway** for EC2 outbound access
 - **Security Groups** with least-privilege access
 - **Automated Backups** with configurable retention
-- **CloudWatch Logs** for monitoring
+- **CloudWatch Logs** for RDS monitoring (error, general, slowquery logs)
 
 ## Architecture
 
