@@ -5,6 +5,7 @@
 > This is a test/learning project with the **bare minimum configuration** to demonstrate AWS RDS + Secrets Manager integration. It is **NOT intended for production use**.
 >
 > **For production environments, you would need:**
+>
 > - **Route 53** - Custom domain name
 > - **ACM (AWS Certificate Manager)** - SSL/TLS certificates
 > - **HTTPS** - Encrypted traffic (currently HTTP only)
@@ -78,21 +79,25 @@ This Terraform configuration deploys an AWS RDS MySQL instance with credentials 
 ### Step 1: Install Terraform
 
 **Windows (using Chocolatey):**
+
 ```powershell
 choco install terraform
 ```
 
 **Windows (manual):**
+
 1. Download from https://developer.hashicorp.com/terraform/downloads
 2. Extract the zip file
 3. Add the folder to your system PATH
 
 **macOS:**
+
 ```bash
 brew install terraform
 ```
 
 **Linux (Ubuntu/Debian):**
+
 ```bash
 sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
 wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg
@@ -101,6 +106,7 @@ sudo apt update && sudo apt install terraform
 ```
 
 **Verify installation:**
+
 ```bash
 terraform --version
 ```
@@ -110,21 +116,25 @@ terraform --version
 ### Step 2: Install AWS CLI
 
 **Windows (using MSI installer):**
+
 1. Download from https://aws.amazon.com/cli/
 2. Run the installer
 3. Restart your terminal
 
 **Windows (using Chocolatey):**
+
 ```powershell
 choco install awscli
 ```
 
 **macOS:**
+
 ```bash
 brew install awscli
 ```
 
 **Linux:**
+
 ```bash
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
@@ -132,6 +142,7 @@ sudo ./aws/install
 ```
 
 **Verify installation:**
+
 ```bash
 aws --version
 ```
@@ -141,11 +152,13 @@ aws --version
 ### Step 3: Configure AWS Credentials
 
 **Option A: Using AWS Configure (Recommended)**
+
 ```bash
 aws configure
 ```
 
 You will be prompted:
+
 ```
 AWS Access Key ID [None]: YOUR_ACCESS_KEY_ID
 AWS Secret Access Key [None]: YOUR_SECRET_ACCESS_KEY
@@ -178,16 +191,18 @@ output = json
 ```
 
 **Verify configuration:**
+
 ```bash
 aws sts get-caller-identity
 ```
 
 Expected output:
+
 ```json
 {
-    "UserId": "AIDAXXXXXXXXXXXXXXXXX",
-    "Account": "123456789012",
-    "Arn": "arn:aws:iam::123456789012:user/your-username"
+  "UserId": "AIDAXXXXXXXXXXXXXXXXX",
+  "Account": "123456789012",
+  "Arn": "arn:aws:iam::123456789012:user/your-username"
 }
 ```
 
@@ -196,6 +211,7 @@ Expected output:
 ### Step 4: Required IAM Permissions
 
 Your AWS user/role needs these permissions:
+
 - `AmazonEC2FullAccess`
 - `AmazonRDSFullAccess`
 - `SecretsManagerReadWrite`
@@ -280,14 +296,14 @@ ec2_instance_type = "t3.micro"
 
 ### Key Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `aws_region` | AWS region | `us-east-1` |
-| `project_name` | Resource naming prefix | `myapp` |
-| `db_instance_class` | RDS instance size | `db.t3.micro` |
-| `db_engine_version` | MySQL version | `8.0` |
-| `ec2_instance_type` | EC2 instance size | `t3.micro` |
-| `enable_rotation` | Auto-rotate secrets | `false` |
+| Variable            | Description            | Default       |
+| ------------------- | ---------------------- | ------------- |
+| `aws_region`        | AWS region             | `us-east-1`   |
+| `project_name`      | Resource naming prefix | `myapp`       |
+| `db_instance_class` | RDS instance size      | `db.t3.micro` |
+| `db_engine_version` | MySQL version          | `8.0`         |
+| `ec2_instance_type` | EC2 instance size      | `t3.micro`    |
+| `enable_rotation`   | Auto-rotate secrets    | `false`       |
 
 ---
 
@@ -355,14 +371,19 @@ connection = pymysql.connect(
 ### Node.js Connection Example
 
 ```javascript
-const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
-const mysql = require('mysql2/promise');
+const {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} = require("@aws-sdk/client-secrets-manager");
+const mysql = require("mysql2/promise");
 
 async function getConnection() {
-  const client = new SecretsManagerClient({ region: 'us-east-1' });
-  const response = await client.send(new GetSecretValueCommand({
-    SecretId: 'myapp-rds-credentials-xxxxx'
-  }));
+  const client = new SecretsManagerClient({ region: "us-east-1" });
+  const response = await client.send(
+    new GetSecretValueCommand({
+      SecretId: "myapp-rds-credentials-xxxxx",
+    }),
+  );
 
   const secret = JSON.parse(response.SecretString);
 
@@ -370,8 +391,8 @@ async function getConnection() {
     host: secret.host,
     user: secret.username,
     password: secret.password,
-    database: 'myappdb',
-    port: secret.port
+    database: "myappdb",
+    port: secret.port,
   });
 }
 ```
@@ -389,6 +410,7 @@ terraform destroy
 Type `yes` when prompted.
 
 **Verify cleanup:**
+
 ```bash
 terraform state list
 # Should return empty (no output)
@@ -409,16 +431,17 @@ terraform state list
 
 ### Connection Test Fails
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `SECRET_NOT_FOUND` | Secret doesn't exist | Verify secret name in Secrets Manager |
-| `ACCESS_DENIED` | EC2 missing IAM permissions | Check IAM role policy |
-| `TIMEOUT` | Network issue | Verify security groups allow traffic |
-| `INVALID_CREDENTIALS` | Wrong password | Secret may be out of sync |
+| Error                 | Cause                       | Solution                              |
+| --------------------- | --------------------------- | ------------------------------------- |
+| `SECRET_NOT_FOUND`    | Secret doesn't exist        | Verify secret name in Secrets Manager |
+| `ACCESS_DENIED`       | EC2 missing IAM permissions | Check IAM role policy                 |
+| `TIMEOUT`             | Network issue               | Verify security groups allow traffic  |
+| `INVALID_CREDENTIALS` | Wrong password              | Secret may be out of sync             |
 
 ### Terraform Destroy Fails
 
 If destroy fails due to dependencies:
+
 ```bash
 # Retry destroy
 terraform destroy
@@ -439,13 +462,13 @@ terraform destroy
 
 Approximate monthly costs (us-east-1):
 
-| Resource | Configuration | Est. Cost |
-|----------|---------------|-----------|
-| RDS db.t3.micro | Single-AZ, 20GB | ~$15/month |
-| EC2 t3.micro | On-demand | ~$8/month |
-| ALB | Basic usage | ~$20/month |
-| NAT Gateway | Basic usage | ~$35/month |
-| Secrets Manager | 1 secret | ~$0.40/month |
+| Resource        | Configuration   | Est. Cost    |
+| --------------- | --------------- | ------------ |
+| RDS db.t3.micro | Single-AZ, 20GB | ~$15/month   |
+| EC2 t3.micro    | On-demand       | ~$8/month    |
+| ALB             | Basic usage     | ~$20/month   |
+| NAT Gateway     | Basic usage     | ~$35/month   |
+| Secrets Manager | 1 secret        | ~$0.40/month |
 
 **Total estimated cost: ~$80/month**
 
@@ -465,12 +488,12 @@ Approximate monthly costs (us-east-1):
 
 ## Files Overview
 
-| File | Description |
-|------|-------------|
-| `main.tf` | Main infrastructure (VPC, RDS, EC2, ALB, etc.) |
-| `variables.tf` | Input variables with defaults |
-| `outputs.tf` | Output values (URLs, ARNs, etc.) |
-| `user_data.sh` | EC2 bootstrap script (Node.js app) |
+| File           | Description                                    |
+| -------------- | ---------------------------------------------- |
+| `main.tf`      | Main infrastructure (VPC, RDS, EC2, ALB, etc.) |
+| `variables.tf` | Input variables with defaults                  |
+| `outputs.tf`   | Output values (URLs, ARNs, etc.)               |
+| `user_data.sh` | EC2 bootstrap script (Node.js app)             |
 
 ---
 
