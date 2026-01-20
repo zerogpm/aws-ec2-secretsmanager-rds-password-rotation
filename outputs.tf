@@ -58,6 +58,16 @@ output "rotation_schedule" {
   value       = var.rotation_days
 }
 
+output "rotation_lambda_arn" {
+  description = "ARN of the rotation Lambda function"
+  value       = var.enable_rotation ? aws_serverlessapplicationrepository_cloudformation_stack.rotation_lambda[0].outputs["RotationLambdaARN"] : null
+}
+
+output "secretsmanager_vpc_endpoint_id" {
+  description = "ID of the Secrets Manager VPC endpoint (for rotation Lambda)"
+  value       = var.enable_rotation ? aws_vpc_endpoint.secretsmanager[0].id : null
+}
+
 output "vpc_id" {
   description = "ID of the VPC"
   value       = aws_vpc.main.id

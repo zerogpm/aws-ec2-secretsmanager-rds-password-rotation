@@ -119,6 +119,40 @@ resource "aws_security_group" "rds" {
   }
 }
 
+# =============================================================================
+# CloudWatch Log Groups for RDS (with 1-day retention for educational use)
+# =============================================================================
+
+resource "aws_cloudwatch_log_group" "rds_error" {
+  name              = "/aws/rds/instance/${var.project_name}-db/error"
+  retention_in_days = 1
+
+  tags = {
+    Name        = "${var.project_name}-rds-error-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_log_group" "rds_general" {
+  name              = "/aws/rds/instance/${var.project_name}-db/general"
+  retention_in_days = 1
+
+  tags = {
+    Name        = "${var.project_name}-rds-general-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_log_group" "rds_slowquery" {
+  name              = "/aws/rds/instance/${var.project_name}-db/slowquery"
+  retention_in_days = 1
+
+  tags = {
+    Name        = "${var.project_name}-rds-slowquery-logs"
+    Environment = var.environment
+  }
+}
+
 # RDS Instance
 resource "aws_db_instance" "main" {
   identifier     = "${var.project_name}-db"
@@ -148,7 +182,7 @@ resource "aws_db_instance" "main" {
   final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.project_name}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
   enabled_cloudwatch_logs_exports = ["error", "general", "slowquery"]
-  
+
   deletion_protection = var.deletion_protection
 
   tags = {
@@ -156,6 +190,13 @@ resource "aws_db_instance" "main" {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  # Ensure log groups exist before RDS tries to write to them
+  depends_on = [
+    aws_cloudwatch_log_group.rds_error,
+    aws_cloudwatch_log_group.rds_general,
+    aws_cloudwatch_log_group.rds_slowquery
+  ]
 }
 
 # Secrets Manager Secret
@@ -190,23 +231,236 @@ resource "aws_secretsmanager_secret_version" "rds_credentials" {
   }
 }
 
-# Enable automatic rotation
-# AWS Secrets Manager will create and manage the rotation Lambda automatically
+# =============================================================================
+# Lambda Rotation Function (AWS Serverless Application Repository)
+# =============================================================================
+
+# Security group for the rotation Lambda
+resource "aws_security_group" "rotation_lambda" {
+  count = var.enable_rotation ? 1 : 0
+
+  name_prefix = "${var.project_name}-rotation-lambda-sg-"
+  description = "Security group for Secrets Manager rotation Lambda"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+  tags = {
+    Name        = "${var.project_name}-rotation-lambda-sg"
+    Environment = var.environment
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Allow rotation Lambda to access RDS
+resource "aws_security_group_rule" "rds_from_rotation_lambda" {
+  count = var.enable_rotation ? 1 : 0
+
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.rotation_lambda[0].id
+  security_group_id        = aws_security_group.rds.id
+  description              = "Allow MySQL access from rotation Lambda"
+}
+
+# VPC Endpoint for Secrets Manager (required for Lambda in private subnet)
+resource "aws_vpc_endpoint" "secretsmanager" {
+  count = var.enable_rotation ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name        = "${var.project_name}-secretsmanager-endpoint"
+    Environment = var.environment
+  }
+}
+
+# Security group for VPC endpoints
+resource "aws_security_group" "vpc_endpoint" {
+  count = var.enable_rotation ? 1 : 0
+
+  name_prefix = "${var.project_name}-vpc-endpoint-sg-"
+  description = "Security group for VPC endpoints"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "Allow HTTPS from VPC"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound"
+  }
+
+  tags = {
+    Name        = "${var.project_name}-vpc-endpoint-sg"
+    Environment = var.environment
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# IAM role for the rotation Lambda
+resource "aws_iam_role" "rotation_lambda" {
+  count = var.enable_rotation ? 1 : 0
+
+  name_prefix = "${var.project_name}-rotation-lambda-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-rotation-lambda-role"
+    Environment = var.environment
+  }
+}
+
+# IAM policy for rotation Lambda
+resource "aws_iam_role_policy" "rotation_lambda" {
+  count = var.enable_rotation ? 1 : 0
+
+  name_prefix = "${var.project_name}-rotation-lambda-policy-"
+  role        = aws_iam_role.rotation_lambda[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecretVersionStage"
+        ]
+        Resource = aws_secretsmanager_secret.rds_credentials.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetRandomPassword"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:DescribeNetworkInterfaces"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# KMS permissions for rotation Lambda (if using custom KMS key)
+resource "aws_iam_role_policy" "rotation_lambda_kms" {
+  count = var.enable_rotation && var.kms_key_id != null ? 1 : 0
+
+  name_prefix = "${var.project_name}-rotation-lambda-kms-"
+  role        = aws_iam_role.rotation_lambda[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = var.kms_key_id
+      }
+    ]
+  })
+}
+
+# Rotation Lambda function using AWS SAR template
+resource "aws_serverlessapplicationrepository_cloudformation_stack" "rotation_lambda" {
+  count = var.enable_rotation ? 1 : 0
+
+  name             = "${var.project_name}-mysql-rotation"
+  application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSMySQLRotationSingleUser"
+  semantic_version = "1.1.367"
+  capabilities     = ["CAPABILITY_IAM", "CAPABILITY_RESOURCE_POLICY"]
+
+  parameters = {
+    endpoint            = "https://secretsmanager.${var.aws_region}.amazonaws.com"
+    functionName        = "${var.project_name}-mysql-rotation-lambda"
+    vpcSubnetIds        = "${aws_subnet.private_1.id},${aws_subnet.private_2.id}"
+    vpcSecurityGroupIds = aws_security_group.rotation_lambda[0].id
+  }
+
+  depends_on = [
+    aws_vpc_endpoint.secretsmanager
+  ]
+}
+
+# Enable automatic rotation with the Lambda function
 resource "aws_secretsmanager_secret_rotation" "rds_credentials" {
   count = var.enable_rotation ? 1 : 0
-  
-  secret_id = aws_secretsmanager_secret.rds_credentials.id
+
+  secret_id           = aws_secretsmanager_secret.rds_credentials.id
+  rotation_lambda_arn = aws_serverlessapplicationrepository_cloudformation_stack.rotation_lambda[0].outputs["RotationLambdaARN"]
 
   rotation_rules {
     automatically_after_days = var.rotation_days
-    duration                = "2h"
-    schedule_expression     = var.rotation_schedule
+    duration                 = "2h"
+    schedule_expression      = var.rotation_schedule
   }
 
   rotate_immediately = var.rotate_immediately
 
   depends_on = [
-    aws_secretsmanager_secret_version.rds_credentials
+    aws_secretsmanager_secret_version.rds_credentials,
+    aws_serverlessapplicationrepository_cloudformation_stack.rotation_lambda
   ]
 }
 

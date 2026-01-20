@@ -112,9 +112,9 @@ variable "secret_recovery_window" {
 
 # Rotation Configuration
 variable "enable_rotation" {
-  description = "Enable automatic secret rotation (requires Lambda rotation function)"
+  description = "Enable automatic secret rotation (recommended for production security)"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "rotation_days" {
