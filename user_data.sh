@@ -18,40 +18,42 @@ const express = require('express');
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 const mysql = require('mysql2/promise');
 const app = express();
-const REGION = '${aws_region}', SECRET = '${secret_name}', DB = '${db_name}';
+const AWS_REGION = '${aws_region}';
+const SECRET_NAME = '${secret_name}';
+const DATABASE_NAME = '${db_name}';
 
 app.get('/api/test-connection', async (req, res) => {
-  const r = { status: 'unknown', message: '', details: {} };
-  let secret;
+  const result = { status: 'unknown', message: '', details: {} };
+  let secretData;
   try {
-    const c = new SecretsManagerClient({ region: REGION });
-    const resp = await c.send(new GetSecretValueCommand({ SecretId: SECRET }));
-    secret = JSON.parse(resp.SecretString);
-    r.details = { secrets_manager: 'success', host: secret.host, port: secret.port, username: secret.username };
-  } catch (e) {
-    r.status = 'error';
-    r.error_type = e.name === 'ResourceNotFoundException' ? 'SECRET_NOT_FOUND' : e.name === 'AccessDeniedException' ? 'ACCESS_DENIED' : 'SECRETS_ERROR';
-    r.message = e.message;
-    return res.status(500).json(r);
+    const secretsClient = new SecretsManagerClient({ region: AWS_REGION });
+    const secretResponse = await secretsClient.send(new GetSecretValueCommand({ SecretId: SECRET_NAME }));
+    secretData = JSON.parse(secretResponse.SecretString);
+    result.details = { secrets_manager: 'success', host: secretData.host, port: secretData.port, username: secretData.username };
+  } catch (error) {
+    result.status = 'error';
+    result.error_type = error.name === 'ResourceNotFoundException' ? 'SECRET_NOT_FOUND' : error.name === 'AccessDeniedException' ? 'ACCESS_DENIED' : 'SECRETS_ERROR';
+    result.message = error.message;
+    return res.status(500).json(result);
   }
-  let conn;
+  let connection;
   try {
-    conn = await mysql.createConnection({ host: secret.host, port: +secret.port, user: secret.username, password: secret.password, database: DB, connectTimeout: 10000 });
-    const [[v]] = await conn.execute('SELECT VERSION() as v');
-    const [[d]] = await conn.execute('SELECT DATABASE() as d');
-    r.details.mysql_version = v.v;
-    r.details.database = d.d;
-    await conn.end();
-    r.status = 'success';
-    r.message = 'Connected to RDS MySQL';
-    return res.json(r);
-  } catch (e) {
-    if (conn) try { await conn.end(); } catch (_) {}
-    r.status = 'error';
-    r.details.error_code = e.errno || e.code;
-    r.error_type = e.errno === 1045 ? 'INVALID_CREDENTIALS' : e.code === 'ECONNREFUSED' ? 'CONNECTION_REFUSED' : e.code === 'ETIMEDOUT' ? 'TIMEOUT' : 'MYSQL_ERROR';
-    r.message = e.message;
-    return res.status(500).json(r);
+    connection = await mysql.createConnection({ host: secretData.host, port: +secretData.port, user: secretData.username, password: secretData.password, database: DATABASE_NAME, connectTimeout: 10000 });
+    const [[versionRow]] = await connection.execute('SELECT VERSION() as version');
+    const [[databaseRow]] = await connection.execute('SELECT DATABASE() as name');
+    result.details.mysql_version = versionRow.version;
+    result.details.database = databaseRow.name;
+    await connection.end();
+    result.status = 'success';
+    result.message = 'Connected to RDS MySQL';
+    return res.json(result);
+  } catch (error) {
+    if (connection) try { await connection.end(); } catch (_) {}
+    result.status = 'error';
+    result.details.error_code = error.errno || error.code;
+    result.error_type = error.errno === 1045 ? 'INVALID_CREDENTIALS' : error.code === 'ECONNREFUSED' ? 'CONNECTION_REFUSED' : error.code === 'ETIMEDOUT' ? 'TIMEOUT' : 'MYSQL_ERROR';
+    result.message = error.message;
+    return res.status(500).json(result);
   }
 });
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
