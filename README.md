@@ -219,16 +219,37 @@ Expected output:
 
 ### Step 4: Required IAM Permissions
 
-Your AWS user/role needs these permissions:
+Your AWS user/role needs these managed policies:
 
 - `AmazonEC2FullAccess`
 - `AmazonRDSFullAccess`
 - `SecretsManagerReadWrite`
-- `IAMFullAccess`
 - `ElasticLoadBalancingFullAccess`
 - `AmazonVPCFullAccess`
+- `CloudWatchLogsFullAccess`
+- `AWSCloudFormationFullAccess` (needed for rotation Lambda)
+- `AWSLambda_FullAccess` (needed for rotation Lambda)
 
-Or use `AdministratorAccess` for simplicity (not recommended for production).
+Plus a **custom policy for IAM** (do NOT use `IAMFullAccess`):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
+      "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
+      "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:GetInstanceProfile",
+      "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile",
+      "iam:PassRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+> **Why not IAMFullAccess?** It allows creating admin users and escalating privileges - a major security risk. The custom policy above only allows managing roles needed for EC2 and Lambda.
 
 ---
 
