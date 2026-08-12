@@ -65,7 +65,15 @@ output "rotation_lambda_arn" {
 
 output "secretsmanager_vpc_endpoint_id" {
   description = "ID of the Secrets Manager VPC endpoint (for rotation Lambda)"
-  value       = var.enable_rotation ? aws_vpc_endpoint.secretsmanager[0].id : null
+  value       = one(aws_vpc_endpoint.secretsmanager[*].id)
+}
+
+output "network_path" {
+  description = "Which routes out of the private subnets are currently enabled"
+  value = {
+    nat_route    = var.enable_nat_route ? "enabled" : "DISABLED"
+    vpc_endpoint = var.enable_rotation && var.enable_vpc_endpoint ? "enabled" : "DISABLED"
+  }
 }
 
 output "vpc_id" {

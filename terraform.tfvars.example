@@ -9,7 +9,7 @@ environment  = "dev"
 # Database Configuration
 db_name             = "myappdb"
 db_username         = "admin"
-db_engine_version   = "8.0.35"
+db_engine_version   = "8.0"      # major version only - AWS picks the current minor (8.0.35 was retired)
 db_instance_class   = "db.t3.micro"      # Use larger for production: db.t3.small, db.m5.large, etc.
 db_allocated_storage = 20                 # Initial storage in GB
 db_max_allocated_storage = 100            # Max autoscale storage in GB
@@ -37,3 +37,11 @@ rotate_immediately = false                # Don't rotate on first apply
 
 # Optional: Use cron expression instead of rotation_days
 # rotation_schedule = "cron(0 0 1 * ? *)"  # First day of every month at midnight
+
+# Network Path Toggles (demo / teaching)
+# Controls how private subnets reach the Secrets Manager API.
+#   true  / true   = both paths available (normal)
+#   false / true   = endpoint is the only path - proves the endpoint works
+#   false / false  = no path at all - rotation hangs and times out
+enable_nat_route    = true
+enable_vpc_endpoint = true

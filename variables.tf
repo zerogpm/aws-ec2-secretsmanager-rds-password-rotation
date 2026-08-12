@@ -140,6 +140,30 @@ variable "rotate_immediately" {
   default     = false
 }
 
+# Network Path Toggles
+# These control HOW the private subnets reach the Secrets Manager API.
+# Both default to true (normal operation). Flip them to demonstrate what
+# happens when a Lambda in a private subnet loses its route out.
+#
+#   enable_nat_route  enable_vpc_endpoint  Result
+#   ----------------  -------------------  ------------------------------------
+#   true              true                 Both paths available (default)
+#   false             true                 Endpoint is the only path - proves it works
+#   false             false                No path at all - rotation hangs and times out
+#   true              false                NAT is the only path - traffic leaves the VPC
+
+variable "enable_nat_route" {
+  description = "Add the 0.0.0.0/0 route to the NAT Gateway in the private route table. Set false to cut all internet egress from private subnets. The NAT Gateway itself is still created, so toggling this applies in seconds."
+  type        = bool
+  default     = false
+}
+
+variable "enable_vpc_endpoint" {
+  description = "Create the Secrets Manager interface VPC endpoint. Requires enable_rotation. Set false to force traffic over NAT (or to break it entirely when enable_nat_route is also false)."
+  type        = bool
+  default     = false
+}
+
 # EC2 Configuration
 variable "ec2_instance_type" {
   description = "EC2 instance type for the web server"

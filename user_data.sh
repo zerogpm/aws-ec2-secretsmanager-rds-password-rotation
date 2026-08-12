@@ -22,6 +22,13 @@ const AWS_REGION = '${aws_region}';
 const SECRET_NAME = '${secret_name}';
 const DATABASE_NAME = '${db_name}';
 
+// Show enough of the password to prove it changed, without publishing it.
+function maskPassword(p) {
+  if (!p) { return '(none)'; }
+  if (p.length <= 8) { return p.charAt(0) + '•••••••'; }
+  return p.slice(0, 4) + '••••••••' + p.slice(-4);
+}
+
 app.get('/api/test-connection', async (req, res) => {
   const result = { status: 'unknown', message: '', details: {} };
   let secretData;
@@ -29,7 +36,7 @@ app.get('/api/test-connection', async (req, res) => {
     const secretsClient = new SecretsManagerClient({ region: AWS_REGION });
     const secretResponse = await secretsClient.send(new GetSecretValueCommand({ SecretId: SECRET_NAME }));
     secretData = JSON.parse(secretResponse.SecretString);
-    result.details = { secrets_manager: 'success', host: secretData.host, port: secretData.port, username: secretData.username };
+    result.details = { secrets_manager: 'success', host: secretData.host, port: secretData.port, username: secretData.username, password: maskPassword(secretData.password), version_id: secretResponse.VersionId, fetched_at: new Date().toISOString() };
   } catch (error) {
     result.status = 'error';
     result.error_type = error.name === 'ResourceNotFoundException' ? 'SECRET_NOT_FOUND' : error.name === 'AccessDeniedException' ? 'ACCESS_DENIED' : 'SECRETS_ERROR';
@@ -74,7 +81,7 @@ EOF
 
 cat > /usr/share/nginx/html/index.html << 'EOF'
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RDS Tester</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:#1a1a2e;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}.c{background:#fff;border-radius:16px;padding:40px;max-width:600px;width:100%}h1{margin-bottom:10px}.sub{color:#666;margin-bottom:30px}.btn{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:0;padding:15px;font-size:16px;border-radius:8px;cursor:pointer;width:100%}.btn:disabled{background:#ccc}.r{margin-top:20px;padding:20px;border-radius:12px}.r.success{background:#d4edda}.r.error{background:#f8d7da}.r.loading{background:#fff3cd}.d{background:rgba(0,0,0,.05);border-radius:8px;padding:15px;margin-top:15px}.dr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.1)}.dr:last-child{border:0}.et{background:#dc3545;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:10px}</style></head>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:#1a1a2e;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}.c{background:#fff;border-radius:16px;padding:40px;max-width:600px;width:100%}h1{margin-bottom:10px}.sub{color:#666;margin-bottom:30px}.btn{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:0;padding:15px;font-size:16px;border-radius:8px;cursor:pointer;width:100%}.btn:disabled{background:#ccc}.r{margin-top:20px;padding:20px;border-radius:12px}.r.success{background:#d4edda}.r.error{background:#f8d7da}.r.loading{background:#fff3cd}.d{background:rgba(0,0,0,.05);border-radius:8px;padding:15px;margin-top:15px}.dr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.1)}.dr:last-child{border:0}.dr span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-align:right;word-break:break-all;margin-left:12px}.dr span:first-child{color:#666;white-space:nowrap}.et{background:#dc3545;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:10px}</style></head>
 <body><div class="c"><h1>RDS Connection Tester</h1><p class="sub">Test MySQL connectivity via Secrets Manager</p>
 <button class="btn" id="btn">Test Connection</button><div id="out"></div></div>
 <script>

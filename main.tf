@@ -276,7 +276,7 @@ resource "aws_security_group_rule" "rds_from_rotation_lambda" {
 
 # VPC Endpoint for Secrets Manager (required for Lambda in private subnet)
 resource "aws_vpc_endpoint" "secretsmanager" {
-  count = var.enable_rotation ? 1 : 0
+  count = var.enable_rotation && var.enable_vpc_endpoint ? 1 : 0
 
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
@@ -293,7 +293,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
 
 # Security group for VPC endpoints
 resource "aws_security_group" "vpc_endpoint" {
-  count = var.enable_rotation ? 1 : 0
+  count = var.enable_rotation && var.enable_vpc_endpoint ? 1 : 0
 
   name_prefix = "${var.project_name}-vpc-endpoint-sg-"
   description = "Security group for VPC endpoints"
@@ -546,9 +546,15 @@ resource "aws_nat_gateway" "main" {
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+  # Toggled by var.enable_nat_route. When false, the private subnets have no
+  # default route at all - the only way out is the Secrets Manager VPC endpoint.
+  dynamic "route" {
+    for_each = var.enable_nat_route ? [1] : []
+
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.main.id
+    }
   }
 
   tags = {
